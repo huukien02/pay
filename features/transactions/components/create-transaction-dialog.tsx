@@ -46,7 +46,7 @@ export function CreateTransactionDialog() {
         Thêm giao dịch
       </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Thêm giao dịch</DialogTitle>
             <DialogDescription>Ghi nhận thu, chi hoặc chuyển khoản.</DialogDescription>

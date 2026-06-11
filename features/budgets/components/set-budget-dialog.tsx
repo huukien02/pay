@@ -40,7 +40,7 @@ export function SetBudgetDialog({ month }: { month: string }) {
         Đặt ngân sách
       </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Đặt ngân sách</DialogTitle>
             <DialogDescription>

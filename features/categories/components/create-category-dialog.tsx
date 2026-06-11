@@ -28,7 +28,7 @@ export function CreateCategoryDialog() {
         Thêm danh mục
       </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Thêm danh mục</DialogTitle>
             <DialogDescription>

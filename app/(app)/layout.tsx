@@ -7,6 +7,7 @@ import { LoginToast } from "@/features/auth/components/login-toast"
 import { LogoutButton } from "@/features/auth/components/logout-button"
 import { createClient } from "@/lib/supabase/server"
 import { MainNav } from "./main-nav"
+import { MobileNav } from "./mobile-nav"
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -31,7 +32,12 @@ export default async function AppLayout({
         <LoginToast />
       </Suspense>
       <header className="bg-background/70 sticky top-0 z-30 border-b backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-4">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4">
+          {/* Mobile: hamburger mở drawer */}
+          <div className="md:hidden">
+            <MobileNav email={user.email} />
+          </div>
+
           <Link
             href="/"
             className="flex shrink-0 items-center gap-2 font-semibold whitespace-nowrap"
@@ -39,14 +45,16 @@ export default async function AppLayout({
             <span className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-lg text-sm font-bold">
               ₫
             </span>
-            <span className="hidden sm:inline">Ví Thu Chi</span>
+            <span>Ví Thu Chi</span>
           </Link>
 
-          <div className="flex min-w-0 flex-1 overflow-x-auto">
+          {/* Desktop: nav ngang */}
+          <div className="hidden min-w-0 flex-1 overflow-x-auto md:flex">
             <MainNav />
           </div>
 
-          <div className="flex shrink-0 items-center gap-3">
+          {/* Desktop: user + đăng xuất (mobile để trong drawer) */}
+          <div className="ml-auto hidden shrink-0 items-center gap-3 md:flex">
             <div className="hidden items-center gap-2 lg:flex">
               <span className="bg-muted text-foreground flex size-7 items-center justify-center rounded-full text-xs font-semibold uppercase">
                 {user.email?.[0] ?? "U"}

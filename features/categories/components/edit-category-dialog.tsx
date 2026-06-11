@@ -29,7 +29,7 @@ export function EditCategoryDialog({ category }: { category: Category }) {
         <Pencil />
       </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Sửa danh mục</DialogTitle>
             <DialogDescription>Cập nhật thông tin danh mục.</DialogDescription>

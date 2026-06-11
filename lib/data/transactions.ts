@@ -37,8 +37,17 @@ export async function listTransactions(
 
   const accountId = params.filter?.accountId as string | undefined
   const type = params.filter?.type as string | undefined
+  const month = params.filter?.month as string | undefined // "YYYY-MM"
   if (accountId) query = query.eq("account_id", accountId)
   if (type) query = query.eq("type", type)
+  if (month) {
+    const [y, m] = month.split("-").map(Number)
+    const start = `${month}-01`
+    const endY = m === 12 ? y + 1 : y
+    const endM = m === 12 ? 1 : m + 1
+    const end = `${endY}-${String(endM).padStart(2, "0")}-01`
+    query = query.gte("occurred_at", start).lt("occurred_at", end)
+  }
 
   const { data, error, count } = await query
   if (error) throw error

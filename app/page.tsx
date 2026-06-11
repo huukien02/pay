@@ -314,8 +314,16 @@ export default function Home() {
       </main>
 
       <footer className="border-t">
-        <div className="text-muted-foreground mx-auto w-full max-w-5xl px-4 py-6 text-center text-sm">
-          Ví Thu Chi — dự án cá nhân.
+        <div className="text-muted-foreground mx-auto flex w-full max-w-5xl flex-col items-center justify-between gap-3 px-4 py-6 text-center text-sm sm:flex-row">
+          <span>Ví Thu Chi — dự án cá nhân.</span>
+          <nav className="flex items-center gap-4">
+            <Link href="/privacy" className="hover:text-foreground">
+              Chính sách bảo mật
+            </Link>
+            <Link href="/terms" className="hover:text-foreground">
+              Điều khoản
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>

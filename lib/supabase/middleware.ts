@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 /** Route công khai (không cần đăng nhập). */
-const PUBLIC_PATHS = ["/login", "/auth", "/error"]
+const PUBLIC_PATHS = ["/login", "/auth", "/error", "/privacy", "/terms"]
 
 function isPublic(pathname: string) {
   // Landing page "/" công khai (khớp chính xác).

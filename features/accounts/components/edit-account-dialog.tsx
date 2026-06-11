@@ -29,7 +29,7 @@ export function EditAccountDialog({ account }: { account: Account }) {
         <Pencil />
       </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Sửa tài khoản</DialogTitle>
             <DialogDescription>Cập nhật thông tin tài khoản.</DialogDescription>

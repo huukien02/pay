@@ -29,7 +29,7 @@ export function CreateAccountDialog() {
         Thêm tài khoản
       </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Thêm tài khoản</DialogTitle>
             <DialogDescription>Tạo một tài khoản tiền mới.</DialogDescription>

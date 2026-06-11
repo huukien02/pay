@@ -42,11 +42,11 @@ function signedAmount(t: TransactionListItem) {
   }
 }
 
-export function TransactionsView() {
+export function TransactionsView({ month }: { month: string }) {
   const supabase = useMemo(() => createClient(), [])
   const { page, pageSize } = usePagination()
   const { data, isPending, isError } = useQuery(
-    transactionsQueryOptions(supabase, { page, pageSize })
+    transactionsQueryOptions(supabase, { page, pageSize, filter: { month } })
   )
 
   if (isPending) return <LoadingState />
@@ -55,8 +55,8 @@ export function TransactionsView() {
   if (data.total === 0) {
     return (
       <EmptyState
-        title="Chưa có giao dịch"
-        description="Thêm giao dịch đầu tiên để bắt đầu theo dõi."
+        title="Không có giao dịch"
+        description="Chưa có giao dịch nào trong tháng đã chọn."
       />
     )
   }
@@ -69,8 +69,8 @@ export function TransactionsView() {
             <TableRow>
               <TableHead>Ngày</TableHead>
               <TableHead>Loại</TableHead>
-              <TableHead>Tài khoản</TableHead>
-              <TableHead>Danh mục</TableHead>
+              <TableHead className="hidden sm:table-cell">Tài khoản</TableHead>
+              <TableHead className="hidden sm:table-cell">Danh mục</TableHead>
               <TableHead className="text-right">Số tiền</TableHead>
               <TableHead className="w-20" />
             </TableRow>
@@ -91,8 +91,10 @@ export function TransactionsView() {
                         (t.transfer_direction === "out" ? " ↗" : " ↘")}
                     </Badge>
                   </TableCell>
-                  <TableCell>{t.account?.name ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="hidden sm:table-cell">
+                    {t.account?.name ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground hidden sm:table-cell">
                     {t.category?.name ?? (t.note || "—")}
                   </TableCell>
                   <TableCell

@@ -96,7 +96,7 @@ export function EditTransactionDialog({ tx }: { tx: TransactionListItem }) {
         <Pencil />
       </Button>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Sửa giao dịch</DialogTitle>
             <DialogDescription>Cập nhật khoản thu/chi.</DialogDescription>
