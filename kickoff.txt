@@ -1,0 +1,353 @@
+================================================================================
+ PERSONAL FINANCE HUB — KICKOFF
+ Stack: Next.js (App Router) + Supabase (Postgres / Auth / RLS / Edge Functions)
+ Mục tiêu: dự án cá nhân thực dụng, chất lượng "senior"
+ Ngày khởi tạo: 2026-06-11
+================================================================================
+
+--------------------------------------------------------------------------------
+0. TRIẾT LÝ DỰ ÁN
+--------------------------------------------------------------------------------
+- "Senior" không nằm ở app làm được gì, mà ở CÁCH xử lý độ phức tạp:
+  data modeling chuẩn, tính toán đặt ở DB (không ở client), RLS chặt,
+  audit trail, transaction, test, CI/CD, observability.
+- App tài chính = độ chính xác tuyệt đối. KHÔNG dùng float cho tiền.
+  Lưu tiền dạng SỐ NGUYÊN (minor units, ví dụ VND xu / cents) hoặc NUMERIC.
+- Số dư KHÔNG tính ở client. Tính bằng SQL view / function + trigger.
+- Mọi truy vấn dữ liệu người dùng đi qua RLS — không tin client.
+
+--------------------------------------------------------------------------------
+1. PHẠM VI (SCOPE)
+--------------------------------------------------------------------------------
+MVP (giai đoạn 1):
+  [ ] Auth (email + OAuth Google) qua Supabase Auth
+  [ ] Tài khoản (accounts): nhiều tài khoản, nhiều loại tiền tệ
+  [ ] Giao dịch (transactions): thu / chi / chuyển khoản nội bộ
+  [ ] Danh mục (categories) + ngân sách (budgets) theo tháng
+  [ ] Dashboard: số dư, dòng tiền, chi theo category (biểu đồ)
+  [ ] RLS đầy đủ, mỗi user chỉ thấy dữ liệu của mình
+
+Giai đoạn 2 (nâng cao — phần ăn điểm senior):
+  [ ] Recurring transactions tự sinh bằng pg_cron
+  [ ] Multi-currency với tỷ giá (bảng exchange_rates, snapshot tại thời điểm GD)
+  [ ] Materialized view cho báo cáo + refresh định kỳ
+  [ ] Audit log (trigger ghi lại mọi thay đổi)
+  [ ] Import CSV sao kê ngân hàng (Edge Function parse + dedupe)
+  [ ] Optimistic UI + reconciliation khi lỗi mạng
+
+Giai đoạn 3 (polish):
+  [ ] Export báo cáo PDF/CSV
+  [ ] PWA / offline-first
+  [ ] Multi-user shared budget (household) — RLS theo membership
+  [ ] Tests (unit + integration + e2e) & CI
+
+KHÔNG làm (out of scope): kết nối ngân hàng thật (Plaid...), app mobile native,
+thanh toán thật. Đây là công cụ theo dõi cá nhân.
+
+--------------------------------------------------------------------------------
+2. KIẾN TRÚC TỔNG QUAN
+--------------------------------------------------------------------------------
+  Next.js (App Router, RSC)
+    ├─ Server Components: đọc dữ liệu trực tiếp qua Supabase server client
+    ├─ Server Actions: mutation (thêm/sửa/xóa giao dịch) — validate bằng Zod
+    ├─ Route Handlers: webhook / import CSV / export
+    └─ Client Components: form, biểu đồ, optimistic UI
+
+  Supabase
+    ├─ Postgres: nguồn chân lý duy nhất, business logic ở DB
+    ├─ Auth: session qua cookie (@supabase/ssr)
+    ├─ RLS: chính sách bảo mật ở mọi bảng
+    ├─ Functions/Triggers: tính số dư, audit, validate
+    ├─ pg_cron: recurring + refresh materialized view
+    └─ Edge Functions: parse CSV, tác vụ nặng/bất đồng bộ
+
+  Nguyên tắc: TIỀN và LOGIC tính toán nằm ở Postgres.
+              Next.js chủ yếu là tầng trình bày + orchestration.
+              KHÔNG cần API key bên ngoài cho MVP.
+
+--------------------------------------------------------------------------------
+3. TECH CHOICES
+--------------------------------------------------------------------------------
+- Framework:     Next.js 15 (App Router, TypeScript, RSC + Server Actions)
+- Styling:       Tailwind CSS + shadcn/ui
+- Data:          @supabase/ssr (server & client), KHÔNG dùng service key ở client
+- Validation:    Zod (dùng chung cho form + server action)
+- Action layer:  next-safe-action (authActionClient + middleware + adapter RHF)
+- Forms:         react-hook-form + zodResolver
+- Charts:        Recharts (hoặc visx nếu cần tùy biến cao)
+- State:         tối thiểu — RSC + Server Actions; TanStack Query nếu cần cache client
+- Migrations:    Supabase CLI (supabase migration) — version-control toàn bộ schema
+- Money:         lưu NUMERIC(20,4) hoặc BIGINT minor units; tính bằng decimal lib ở UI
+- Testing:       Vitest (unit), Playwright (e2e), pgTAP (test RLS/SQL — điểm cộng)
+- CI/CD:         GitHub Actions: lint + typecheck + test + supabase db lint
+- Deploy:        Vercel (Next.js) + Supabase Cloud
+- Observability: Sentry (lỗi) + Supabase logs
+
+--------------------------------------------------------------------------------
+4. DATA MODEL (phác thảo schema)
+--------------------------------------------------------------------------------
+profiles
+  id            uuid PK  -> auth.users.id
+  display_name  text
+  base_currency text     -- ví dụ 'VND', dùng để quy đổi báo cáo
+  created_at    timestamptz
+
+accounts
+  id            uuid PK
+  user_id       uuid     -> auth.users.id   (RLS theo cột này)
+  name          text
+  type          text     -- cash | bank | credit | savings | investment
+  currency      text     -- 'VND' | 'USD'...
+  archived      boolean default false
+  created_at    timestamptz
+
+categories
+  id            uuid PK
+  user_id       uuid
+  name          text
+  kind          text     -- income | expense
+  parent_id     uuid null -> categories.id   (danh mục cha/con)
+  color         text
+
+transactions
+  id            uuid PK
+  user_id       uuid
+  account_id    uuid     -> accounts.id
+  category_id   uuid null-> categories.id
+  type          text     -- income | expense | transfer
+  amount        numeric(20,4)  -- luôn DƯƠNG; chiều tính theo type
+  currency      text
+  fx_rate       numeric  -- tỷ giá về base_currency tại thời điểm GD (snapshot)
+  occurred_at   timestamptz
+  note          text
+  transfer_id   uuid null -- ghép 2 dòng của 1 lệnh chuyển khoản
+  created_at    timestamptz
+
+budgets
+  id            uuid PK
+  user_id       uuid
+  category_id   uuid
+  period        text     -- 'monthly'
+  month         date     -- mốc đầu tháng
+  amount        numeric(20,4)
+
+recurring_rules            (giai đoạn 2)
+  id, user_id, template (jsonb), rrule text, next_run date, active boolean
+
+exchange_rates             (giai đoạn 2)
+  base, quote, rate, as_of date
+
+audit_log                  (giai đoạn 2)
+  id, user_id, table_name, row_id, action, diff jsonb, at timestamptz
+
+VIEW account_balances      -- số dư mỗi account, tính từ transactions (KHÔNG cột stored)
+VIEW monthly_cashflow      -- thu/chi theo tháng
+MATERIALIZED VIEW category_spend_monthly  -- báo cáo nặng, refresh định kỳ
+
+Quy ước: transfer = 2 dòng transactions cùng transfer_id (1 expense ở account
+nguồn, 1 income ở account đích) -> số dư luôn cân.
+
+--------------------------------------------------------------------------------
+5. BẢO MẬT / RLS (bắt buộc, làm ngay từ đầu)
+--------------------------------------------------------------------------------
+- Bật RLS trên MỌI bảng có user_id.
+- Policy mẫu: USING (auth.uid() = user_id) cho SELECT/INSERT/UPDATE/DELETE.
+- Không bao giờ expose service_role key ra client.
+- Server Actions validate bằng Zod TRƯỚC khi chạm DB.
+- Ràng buộc ở DB: CHECK amount > 0; FK; UNIQUE; NOT NULL — không phó mặc app.
+- Trigger validate: transaction.currency phải khớp account.currency.
+- Test RLS bằng pgTAP / script: user A không đọc được dữ liệu user B.
+
+--------------------------------------------------------------------------------
+6. CẤU TRÚC THƯ MỤC (dự kiến)
+--------------------------------------------------------------------------------
+  /app
+    /(auth)/login, /signup
+    /(app)/dashboard
+    /(app)/accounts
+    /(app)/transactions
+    /(app)/budgets
+    /(app)/settings
+    /api/import, /api/export
+  /app
+    providers.tsx    (gom QueryClientProvider + ThemeProvider + <Toaster/>)
+  /components
+    /ui              (shadcn primitives — "vendor", KHÔNG import trực tiếp)
+    /core            (design system layer — API công khai duy nhất, bọc shadcn)
+    /forms
+       Form.tsx      (<Form> abstraction: schema + action -> wire RHF, gọi action,
+                      map fieldErrors về setError, bắn toast. Feature chỉ khai field)
+       fields/       (TextField, MoneyField, SelectField, ComboboxField, DateField,
+                      TextareaField, SwitchField, CheckboxField — đều bọc RHF context)
+    /patterns        (block cấp cao + state chung: DataTable, EmptyState, ErrorState,
+                      LoadingState/Skeleton, PageHeader, StatCard, ConfirmDialog,
+                      Pagination — phân trang dùng chung, điều khiển bằng URL searchParams)
+    /charts          (bọc Recharts)
+  /features
+    /<feature>/components   (UI riêng feature — chỉ dùng core/forms/patterns)
+    /<feature>/actions      (server actions — định nghĩa qua authActionClient)
+    /<feature>/queries      (react-query hooks + query keys)
+  /lib
+    /supabase        (server.ts, client.ts, middleware.ts, database.types.ts)
+    /data            (Data Access Layer — mọi query Supabase gom ở đây)
+       types.ts      (ListParams + Paginated<T> — FORMAT TRẢ VỀ DUY NHẤT cho list)
+                     (mọi hàm list -> Paginated<T> qua .range() + count:'exact')
+    /validations     (zod schemas dùng chung RHF + server action)
+    /safe-action.ts  (next-safe-action: actionClient + authActionClient bọc
+                     middleware auth -> inject userId, kiểm tra session)
+                     (map validationErrors -> RHF setError qua adapter RHF)
+    /toast.ts        (notify.success/error — bọc sonner, API duy nhất)
+    /format          (formatMoney, formatDate theo vi-VN + currency)
+    /constants       (enums: TRANSACTION_TYPES, ACCOUNT_TYPES, CATEGORY_KINDS...)
+    /hooks           (useDisclosure, useConfirm, useDebounce, usePagination...)
+                     (usePagination: sync page/pageSize với URL searchParams)
+    /query-keys.ts   (query key factory)
+    /money           (tiện ích xử lý tiền/decimal)
+  /supabase
+    /migrations      (SQL có version)
+    /functions       (edge functions)
+    config.toml
+  /tests             (vitest, playwright, pgtap)
+
+--------------------------------------------------------------------------------
+7. ROADMAP THỰC THI (thứ tự làm)
+--------------------------------------------------------------------------------
+Sprint 0 — Setup + Design System  [HOÀN THÀNH 2026-06-11]
+  [x] Khởi tạo Next.js 16 + TS + Tailwind v4 + shadcn (chạy trên Base UI)
+  [x] Cài shadcn primitives vào components/ui (coi như vendor)
+  [x] Dựng components/core (re-export gateway) bọc shadcn
+  [x] ESLint no-restricted-imports: cấm import components/ui ngoài components/core
+  [x] Dựng components/forms (<AppForm> + SubmitButton + 6 field bọc RHF)
+  [x] React Query provider (app/providers.tsx) + query-client + query-keys.ts
+  [x] @supabase/ssr clients (client/server) + proxy.ts (Next 16) + safe-action
+  [x] Auth flow (login/signup/logout) + bảo vệ route — build PASS
+  [ ] CÒN LẠI (cần Supabase project thật): điền .env.local, supabase init/link,
+      migration đầu (profiles + trigger handle_new_user) -> đầu Sprint 1
+
+Sprint 1 — Core data + RLS  [HOÀN THÀNH 2026-06-11]
+  [x] Migration: profiles, accounts, categories, transactions, budgets (6 file)
+  [x] RLS đầy đủ trên mọi bảng ((select auth.uid()) = user_id)
+  [x] handle_new_user trigger (tự tạo profile) + backfill user cũ
+  [x] validate_transaction trigger (account thuộc user + đồng bộ currency)
+  [x] View account_balances, monthly_cashflow (security_invoker = on)
+  [x] db push lên cloud + generate database.types.ts (typed)
+  [x] Vertical slice ACCOUNTS chứng minh kiến trúc end-to-end:
+      DAL (Paginated) -> action (authActionClient) -> queryOptions
+      -> RSC prefetch + HydrationBoundary -> AccountsView (useQuery)
+      -> CreateAccountDialog (AppForm) + DeleteAccountButton (ConfirmDialog)
+      -> build PASS
+  [ ] CÒN LẠI: test cô lập RLS giữa 2 user (pgTAP/script) -> Sprint 5
+
+Sprint 2 — CRUD + UX  [HOÀN THÀNH 2026-06-11]
+  [x] CRUD accounts (tạo/xóa; sửa/archive để sau)
+  [x] CRUD categories (tạo/xóa, lọc theo kind)
+  [x] Thêm/xóa transaction (income/expense/transfer) qua Server Action + Zod
+      - form 1 cái với field điều kiện (transfer -> chọn tài khoản đích)
+      - transfer = RPC create_transfer atomic (2 dòng out/in)
+      - xóa transfer tự xóa cả 2 vế
+  [x] Dashboard: số dư thật từ account_balances + thu/chi tháng (cashflow)
+  [ ] CÒN LẠI: sửa transaction, biểu đồ chi theo category (Recharts) -> Sprint 3
+
+Sprint 3 — Budgets + báo cáo  [HOÀN THÀNH 2026-06-11]
+  [x] View category_spend_monthly (chi theo danh mục/tháng)
+  [x] Biểu đồ Recharts (donut) chi theo danh mục trên dashboard
+  [x] Budgets: đặt ngân sách/danh mục/tháng (upsert) + so thực chi (progress)
+  [x] Sửa (edit) accounts / categories / transactions(thu-chi) qua dialog
+  [ ] CÒN LẠI: materialized view + pg_cron refresh (tối ưu) -> Sprint 4/5
+
+  (Transfer không sửa qua form — chỉ xóa & tạo lại, vì là 2 dòng atomic.)
+
+Sprint 4 — Nâng cao (senior signals)
+  [ ] Recurring qua pg_cron
+  [ ] Import CSV (Edge Function) + dedupe
+  [ ] Audit log qua trigger
+  [ ] Multi-currency + exchange_rates
+
+Sprint 5 — Chất lượng  [ĐANG LÀM]
+  [x] Vitest unit (29 test: money, pagination, zod schemas) — bắt 1 bug parse tiền
+  [x] GitHub Actions CI (.github/workflows/ci.yml: lint+typecheck+test+build)
+  [ ] Playwright (e2e) + pgTAP (test cô lập RLS giữa 2 user)
+  [ ] Sentry, deploy Vercel + Supabase Cloud
+
+--------------------------------------------------------------------------------
+8. ĐỊNH NGHĨA "XONG" (Definition of Done) cho MVP
+--------------------------------------------------------------------------------
+- Đăng nhập được, mỗi user chỉ thấy dữ liệu của mình (đã test RLS).
+- Thêm tài khoản, nhập thu/chi/chuyển khoản; số dư luôn đúng.
+- Dashboard hiển thị số dư + chi theo category theo tháng.
+- Toàn bộ tính tiền ở DB; không có lỗi làm tròn float.
+- Schema quản lý bằng migration; deploy được lên Vercel + Supabase.
+
+--------------------------------------------------------------------------------
+9b. KIẾN TRÚC FRONTEND (ĐÃ CHỐT) — Pattern C: Hybrid
+--------------------------------------------------------------------------------
+Tổng thể: RSC prefetch -> React Query hydrate; Server Actions làm mutationFn.
+
+  RSC: fetch + prefetchQuery ─► HydrationBoundary ─► Client useQuery (no spinner)
+  RHF + Form ─► useMutation({ mutationFn: serverAction }) ─Zod─► Supabase
+        │                          │
+   optimistic update          onSettled: invalidateQueries / revalidatePath
+
+Vì sao Pattern C:
+  - Initial load nhanh như RSC (không waterfall), KHÔNG cần viết API route —
+    Server Action thay thế, type-safe end-to-end.
+  - React Query lo cache / optimistic / realtime ở client.
+  - Một schema Zod dùng chung cho RHF + Server Action (validate 1 định nghĩa).
+  - Logic tiền ở DB / Server Action; client chỉ orchestrate -> đúng tinh thần senior.
+
+Pattern phụ trợ (áp dụng toàn bộ):
+  1. Data Access Layer: mọi query Supabase gom vào /lib/data/*.ts. RSC và
+     Server Action đều gọi qua DAL — không gọi Supabase rải rác trong component.
+  2. Zod là nguồn chân lý: /lib/validations/*.ts. RHF dùng zodResolver, Server
+     Action dùng .parse(), TS type suy ra từ schema. Một chỗ định nghĩa.
+  3. Query key factory: /lib/query-keys.ts tập trung key để invalidate nhất quán.
+  4. Server Action chuẩn hóa kết quả: luôn trả
+       { ok: true, data } | { ok: false, error }
+     -> React Query onError/onSuccess + RHF setError xử lý gọn, không throw bừa.
+
+--------------------------------------------------------------------------------
+9c. COMPONENT LAYER (ĐÃ CHỐT) — KHÔNG import shadcn trực tiếp
+--------------------------------------------------------------------------------
+NGUYÊN TẮC: app code KHÔNG BAO GIỜ import từ components/ui (shadcn primitives).
+App chỉ import từ tầng bọc (design system layer) do mình kiểm soát.
+
+Phân tầng:
+  components/ui/        <- shadcn copy nguyên bản (primitives). COI NHƯ "vendor",
+                           không sửa tay, không import trực tiếp ở feature code.
+  components/core/      <- DESIGN SYSTEM LAYER (tầng bọc). Re-export + chuẩn hóa
+                           variant, size, token, a11y. Vd: Button, Input, Dialog,
+                           Card... bọc quanh shadcn. ĐÂY là API công khai duy nhất.
+  components/forms/     <- Field bọc shadcn Form + RHF (vd <MoneyField/>,
+                           <CategorySelect/>, <DatePickerField/>) gắn sẵn
+                           zodResolver pattern, hiển thị lỗi đồng nhất.
+  components/patterns/  <- block ghép sẵn cấp cao (DataTable, EmptyState,
+                           PageHeader, StatCard, ConfirmDialog...).
+  components/charts/    <- bọc Recharts (StatCard, CashflowChart...).
+  features/*/components <- UI riêng từng feature, CHỈ dùng core/forms/patterns.
+
+Lý do (senior signals):
+  - Decoupling: đổi theme / variant / thậm chí thay shadcn về sau chỉ sửa 1 tầng.
+  - Nhất quán: token, spacing, a11y, focus-state tập trung — không drift.
+  - Ép kỷ luật: lint rule cấm import từ components/ui ở ngoài components/core.
+  - Dễ test & document (Storybook chỉ trỏ vào tầng core/forms/patterns).
+
+Thực thi:
+  - ESLint no-restricted-imports: cấm 'components/ui/*' ngoài components/core/**.
+  - cn() / cva() để định nghĩa variant ở tầng core, không lặp className ở app.
+  - Thêm shadcn component mới = chạy CLI vào components/ui rồi BỌC ở components/core
+    trước khi feature được phép dùng.
+
+THỨ TỰ LÀM: dựng components/core (+ forms, patterns) TRƯỚC khi build feature.
+  -> chèn vào Sprint 0/1 (xem mục 7).
+
+--------------------------------------------------------------------------------
+9. CÂU HỎI / QUYẾT ĐỊNH CÒN MỞ
+--------------------------------------------------------------------------------
+- [ ] Loại tiền chính (base_currency) mặc định: VND?
+- [ ] Lưu tiền: NUMERIC(20,4) hay BIGINT minor-units? (đề xuất: NUMERIC cho dễ)
+- [ ] Có cần multi-user/household ngay không, hay để giai đoạn sau?
+- [ ] Mức kinh nghiệm Supabase hiện tại -> quyết định độ chi tiết hướng dẫn.
+
+================================================================================
+ BƯỚC TIẾP THEO: chốt mục 9 -> bắt đầu Sprint 0 (scaffold project).
+================================================================================
