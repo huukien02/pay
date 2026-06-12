@@ -38,9 +38,16 @@ export async function listTransactions(
   const accountId = params.filter?.accountId as string | undefined
   const type = params.filter?.type as string | undefined
   const month = params.filter?.month as string | undefined // "YYYY-MM"
+  const day = params.filter?.day as string | undefined // "YYYY-MM-DD"
   if (accountId) query = query.eq("account_id", accountId)
   if (type) query = query.eq("type", type)
-  if (month) {
+  // `day` ưu tiên hơn `month` (lọc hẹp hơn). occurred_at trong [day, day+1).
+  if (day) {
+    const [y, m, d] = day.split("-").map(Number)
+    const next = new Date(y, m - 1, d + 1)
+    const end = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`
+    query = query.gte("occurred_at", day).lt("occurred_at", end)
+  } else if (month) {
     const [y, m] = month.split("-").map(Number)
     const start = `${month}-01`
     const endY = m === 12 ? y + 1 : y

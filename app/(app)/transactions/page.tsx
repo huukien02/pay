@@ -2,7 +2,7 @@ import { HydrationBoundary, dehydrate } from "@tanstack/react-query"
 
 import { PageHeader } from "@/components/patterns"
 import { CreateTransactionDialog } from "@/features/transactions/components/create-transaction-dialog"
-import { MonthFilter } from "@/features/transactions/components/month-filter"
+import { PeriodFilter } from "@/features/transactions/components/period-filter"
 import { TransactionsView } from "@/features/transactions/components/transactions-view"
 import { transactionsQueryOptions } from "@/features/transactions/queries"
 import { DEFAULT_PAGE_SIZE } from "@/lib/data/types"
@@ -17,14 +17,21 @@ function currentMonth() {
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; pageSize?: string; month?: string }>
+  searchParams: Promise<{
+    page?: string
+    pageSize?: string
+    month?: string
+    day?: string
+  }>
 }) {
   const sp = await searchParams
+  const day = sp.day
   const month = sp.month ?? currentMonth()
+  // `day` ưu tiên hơn `month` — phải khớp với logic trong TransactionsView/DAL.
   const params = {
     page: Number(sp.page) || 1,
     pageSize: Number(sp.pageSize) || DEFAULT_PAGE_SIZE,
-    filter: { month },
+    filter: day ? { day } : { month },
   }
 
   const supabase = await createClient()
@@ -38,9 +45,9 @@ export default async function TransactionsPage({
         description="Ghi nhận thu, chi và chuyển khoản."
         actions={<CreateTransactionDialog />}
       />
-      <MonthFilter />
+      <PeriodFilter />
       <HydrationBoundary state={dehydrate(queryClient)}>
-        <TransactionsView month={month} />
+        <TransactionsView month={month} day={day} />
       </HydrationBoundary>
     </div>
   )

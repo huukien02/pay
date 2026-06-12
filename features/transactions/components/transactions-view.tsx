@@ -42,11 +42,22 @@ function signedAmount(t: TransactionListItem) {
   }
 }
 
-export function TransactionsView({ month }: { month: string }) {
+export function TransactionsView({
+  month,
+  day,
+}: {
+  month: string
+  day?: string
+}) {
   const supabase = useMemo(() => createClient(), [])
   const { page, pageSize } = usePagination()
+  // `day` ưu tiên hơn `month` — phải khớp logic prefetch trong page/DAL.
   const { data, isPending, isError } = useQuery(
-    transactionsQueryOptions(supabase, { page, pageSize, filter: { month } })
+    transactionsQueryOptions(supabase, {
+      page,
+      pageSize,
+      filter: day ? { day } : { month },
+    })
   )
 
   if (isPending) return <LoadingState />
@@ -56,7 +67,11 @@ export function TransactionsView({ month }: { month: string }) {
     return (
       <EmptyState
         title="Không có giao dịch"
-        description="Chưa có giao dịch nào trong tháng đã chọn."
+        description={
+          day
+            ? "Chưa có giao dịch nào trong ngày đã chọn."
+            : "Chưa có giao dịch nào trong tháng đã chọn."
+        }
       />
     )
   }
